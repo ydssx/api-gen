@@ -1,4 +1,6 @@
-apiPath: /login
+apiPath: 
+  - /login
+  - /register
 
 typeFile: types/example.go
 

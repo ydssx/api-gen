@@ -196,6 +196,7 @@ func isFunctionExists(file *ast.File, functionName string) bool {
 	return false
 }
 
+// TODO:防止router重复添加
 func addRouter1(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc FuncInfo) (err error) {
 	// 解析Go文件
 	fset := token.NewFileSet()
