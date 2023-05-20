@@ -7,12 +7,16 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/token"
+	"io"
 	"log"
 	"os"
 	"strings"
+
+	"github.com/pkg/errors"
 )
 
 var logicTmp = `
+// this is logic
 func %sLogic(req %s) (resp %s, err error) {
 	// TODO: add your logic here and delete this line
 
@@ -67,24 +71,16 @@ func writeDecl(filename, decl string) (info FuncInfo) {
 		log.Fatal(err)
 	}
 	newFunc := funcAST.Decls[0].(*ast.FuncDecl)
+
 	info = parseFunc(file.Name.Name, newFunc)
 
-	// 将新函数添加到原始文件的语法树中
-	file.Decls = append(file.Decls, newFunc)
-
-	output, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer output.Close()
-
-	// 格式化生成的代码
-	err = format.Node(output, fset, file)
-	if err != nil {
-		log.Fatal(err)
+	if isFunctionExists(file, newFunc.Name.Name) {
+		// 如果函数名重复，可以选择跳过添加或者进行替换
+		log.Println("Function", newFunc.Name.Name, "already exists. Skipping...")
+		return
 	}
 
-	fmt.Println("New function added to", filename)
+	fileAppend(filename, decl)
 	return
 }
 
@@ -171,4 +167,103 @@ func findInsertIndex(stmts []ast.Stmt, startPos, endPos token.Pos) int {
 		}
 	}
 	return len(stmts)
+}
+
+func fileAppend(filename, content string) error {
+	// 打开文件，如果文件不存在则创建，以追加模式打开
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		return errors.Wrap(err, "Failed to open file")
+	}
+	defer file.Close()
+
+	// 将内容写入文件
+	if _, err := io.WriteString(file, content); err != nil {
+		return errors.Wrap(err, "Failed to write to file")
+	}
+
+	fmt.Println("New function added to", filename)
+	return nil
+}
+
+// 检查函数名是否存在
+func isFunctionExists(file *ast.File, functionName string) bool {
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == functionName {
+			return true
+		}
+	}
+	return false
+}
+
+func addRouter1(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc FuncInfo) (err error) {
+	// 解析Go文件
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, routerFile, nil, parser.ParseComments)
+	if err != nil {
+		fmt.Println("Failed to parse file:", err)
+		return
+	}
+
+	// 查找目标函数
+	var targetFunc *ast.FuncDecl
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == routerFunc {
+			targetFunc = fn
+			break
+		}
+	}
+	if targetFunc == nil {
+		return fmt.Errorf("Failed to find target func :%s ,%v", routerFunc, err)
+	}
+
+	// 创建新的CallExpr节点
+	newCallExpr := &ast.ExprStmt{
+		X: &ast.CallExpr{
+			Fun: &ast.SelectorExpr{
+				X:   ast.NewIdent(targetFunc.Type.Params.List[0].Names[0].Name),
+				Sel: ast.NewIdent(apiInfo.Method),
+			},
+			Args: []ast.Expr{
+				ast.NewIdent(`"` + apiInfo.Path + `"`),
+				ast.NewIdent(handlerFunc.Pkg + "." + handlerFunc.FuncName),
+			},
+		},
+	}
+
+	// 创建新的文件节点，并按原始顺序将函数添加到该节点中
+	newFile := &ast.File{
+		Name:  file.Name,
+		Decls: make([]ast.Decl, len(file.Decls)),
+	}
+	copy(newFile.Decls, file.Decls)
+
+	// 在目标函数体的语句列表中找到适当的位置插入新的调用表达式
+	insertIndex := findInsertIndex(targetFunc.Body.List, targetFunc.Body.Lbrace+1, targetFunc.Body.Rbrace-1)
+	targetFunc.Body.List = append(targetFunc.Body.List[:insertIndex], append([]ast.Stmt{newCallExpr}, targetFunc.Body.List[insertIndex:]...)...)
+
+	// 将目标函数替换为修改后的函数
+	for i, decl := range newFile.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == targetFunc.Name.Name {
+			newFile.Decls[i] = targetFunc
+			break
+		}
+	}
+
+	outputFile, err := os.OpenFile(routerFile, os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		fmt.Println("Failed to create file:", err)
+		return
+	}
+	defer outputFile.Close()
+
+	// 重新写入文件，保留原始文件的格式和注释
+	err = format.Node(outputFile, fset, newFile)
+	if err != nil {
+		fmt.Println("Failed to write file:", err)
+		return
+	}
+
+	fmt.Println("New statement added to", routerFile)
+	return nil
 }
