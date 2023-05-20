@@ -1,0 +1,14 @@
+apiPath: /login
+
+typeFile: types/example.go
+
+logic:
+  file: logic/logic.go
+  Receiver: "*UserLogic"
+
+handler:
+  file: handler/handler.go
+
+router:
+  file: router/router.go
+  groupFuc: UserGroup
