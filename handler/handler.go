@@ -7,12 +7,33 @@ import (
 	"github.com/ydssx/api-gen/util"
 )
 
-// @Success 200	{object} model.Admin
-// @Router /accounts/{id} [get]
-func loginHandler(c *gin.Context) {
+// @Param register query types.RegisterReq true "注册"
+// @Success 200	{object} util.Response{data=types.RegisterResp}
+// @Router /register [get]
+func RegisterHandler(c *gin.Context) {
+	var req types.RegisterReq
+	if err := c.ShouldBind(&req); err != nil {
+		util.FailWithMsg(c, util.WrapValidateErrMsg(err))
+		return
+	}
+
+	resp, err := logic.RegisterLogic(req)
+	if err != nil {
+		util.FailWithMsg(c, err.Error())
+		return
+	}
+
+	util.OKWithData(c, resp)
+}
+
+
+// @Param Login body types.LoginReq true "注册"
+// @Success 200	{object} util.Response{data=types.LoginResp}
+// @Router /api/v1/user/login [post]
+func LoginHandler(c *gin.Context) {
 	var req types.LoginReq
 	if err := c.ShouldBind(&req); err != nil {
-		util.FailWithMsg(c, util.WrapErrMsg(err))
+		util.FailWithMsg(c, util.WrapValidateErrMsg(err))
 		return
 	}
 

@@ -1,16 +1,18 @@
-apiPath: 
-  - /login
-  - /register
+basicPath: /api/v1
+
+apiPath:
+  - /user/login
+  - /user/register
 
 typeFile: types/example.go
 
 logic:
   file: logic/logic.go
-  Receiver: "*UserLogic"
+  receiver: "*UserLogic"
 
 handler:
   file: handler/handler.go
 
 router:
   file: router/router.go
-  groupFuc: UserGroup
+  groupFunc: UserRouter

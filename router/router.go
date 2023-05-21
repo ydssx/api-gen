@@ -9,8 +9,8 @@ type routerGroup func(*gin.RouterGroup)
 
 // this is a comments
 func UserRouter(rg *gin.RouterGroup) {
-
 	rg.GET("/register", handler.RegisterHandler)
+	rg.POST("/user/login", handler.LoginHandler)
 }
 
 // this is api router

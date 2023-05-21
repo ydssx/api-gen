@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 
@@ -30,8 +31,7 @@ func genLogicFunc(filename string, api TypeInfo) FuncInfo {
 }
 
 var handlerTmp = `
-// @Success 200	{object} util.Response{data=%s}
-// @Router %s [%s]
+%s
 func %sHandler(c *gin.Context) {
 	var req %s
 	if err := c.ShouldBind(&req); err != nil {
@@ -49,10 +49,23 @@ func %sHandler(c *gin.Context) {
 }
 `
 
-func genHandlerFunc(filename string, def TypeInfo, logic FuncInfo) FuncInfo {
+func addSwagAnnotation(basicPath string, info TypeInfo) (s string) {
+	s = `
+// @Param %s %s %s true 请求参数
+// @Success 200	{object} util.Response{data=%s}
+// @Router %s [%s]`
+	paramType := "body"
+	if info.Method == http.MethodGet {
+		paramType = "query"
+	}
+	s = fmt.Sprintf(s, info.HandlerName, paramType, info.Req, info.Resp, basicPath+info.Path, strings.ToLower(info.Method))
+	return
+}
+
+func genHandlerFunc(filename, basicPath string, def TypeInfo, logic FuncInfo) FuncInfo {
 
 	// 要追加的内容
-	content := fmt.Sprintf(handlerTmp, def.Resp, def.Path, strings.ToLower(def.Method), def.HandlerName, def.Req, strings.Join(logic.Results, ", "), logic.Pkg, logic.FuncName, logic.Results[0])
+	content := fmt.Sprintf(handlerTmp, addSwagAnnotation(basicPath, def), def.HandlerName, def.Req, strings.Join(logic.Results, ", "), logic.Pkg, logic.FuncName, logic.Results[0])
 
 	return writeDecl(filename, content)
 }
@@ -82,63 +95,6 @@ func writeDecl(filename, decl string) (info FuncInfo) {
 
 	fileAppend(filename, decl)
 	return
-}
-
-func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc FuncInfo) (err error) {
-
-	// 解析Go文件
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, routerFile, nil, parser.ParseComments)
-	if err != nil {
-		fmt.Println("Failed to parse file:", err)
-		return
-	}
-
-	// 查找目标函数
-	var targetFunc *ast.FuncDecl
-	for _, decl := range file.Decls {
-		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == routerFunc {
-			targetFunc = fn
-			break
-		}
-	}
-	if targetFunc == nil {
-		return fmt.Errorf("Failed to find target func :%s ,%v", routerFunc, err)
-	}
-
-	// 创建新的CallExpr节点
-	newCallExpr := &ast.ExprStmt{
-		X: &ast.CallExpr{
-			Fun: &ast.SelectorExpr{
-				X:   ast.NewIdent(targetFunc.Type.Params.List[0].Names[0].Name),
-				Sel: ast.NewIdent(apiInfo.Method),
-			},
-			Args: []ast.Expr{
-				ast.NewIdent(`"` + apiInfo.Path + `"`),
-				ast.NewIdent(handlerFunc.Pkg + "." + handlerFunc.FuncName),
-			},
-		},
-	}
-	funcBody := targetFunc.Body
-	// 在目标函数体的语句列表中找到适当的位置插入新的调用表达式
-	insertIndex := findInsertIndex(funcBody.List, targetFunc.Pos(), targetFunc.End())
-	funcBody.List = append(funcBody.List[:insertIndex], append([]ast.Stmt{newCallExpr}, funcBody.List[insertIndex:]...)...) // 创建新的路由语句
-
-	outputFile, err := os.OpenFile(routerFile, os.O_WRONLY|os.O_CREATE, 0644)
-	if err != nil {
-		fmt.Println("Failed to create file:", err)
-		return
-	}
-	defer outputFile.Close()
-
-	err = formatAndWriteFile(outputFile, fset, file)
-	if err != nil {
-		fmt.Println("Failed to write file:", err)
-		return
-	}
-
-	fmt.Println("New statement added to", routerFile)
-	return nil
 }
 
 func formatAndWriteFile(outputFile *os.File, fset *token.FileSet, file *ast.File) error {
@@ -177,6 +133,10 @@ func fileAppend(filename, content string) error {
 	}
 	defer file.Close()
 
+	if hasTrailingEmptyLine, _ := hasEmptyLineAtEnd(filename); !hasTrailingEmptyLine {
+		content = string('\n') + content
+	}
+
 	// 将内容写入文件
 	if _, err := io.WriteString(file, content); err != nil {
 		return errors.Wrap(err, "Failed to write to file")
@@ -197,7 +157,7 @@ func isFunctionExists(file *ast.File, functionName string) bool {
 }
 
 // TODO:防止router重复添加
-func addRouter1(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc FuncInfo) (err error) {
+func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc FuncInfo) (err error) {
 	// 解析Go文件
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, routerFile, nil, parser.ParseComments)
@@ -267,4 +227,20 @@ func addRouter1(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Fun
 
 	fmt.Println("New statement added to", routerFile)
 	return nil
+}
+
+// 判断文件末尾是否有空行
+func hasEmptyLineAtEnd(filename string) (bool, error) {
+	// 读取文件内容
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return false, err
+	}
+
+	// 检查最后一个字符是否是换行符
+	if len(content) > 0 && content[len(content)-1] == '\n' {
+		return true, nil
+	}
+
+	return false, nil
 }
