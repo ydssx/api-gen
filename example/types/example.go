@@ -1,7 +1,8 @@
 package types
 
+// @group user
 // @handler login
-// @router /user/login [post]
+// @router /login [post]
 type (
 	LoginReq struct {
 		Name     string `json:"name" binding:"required"` //用户名
@@ -13,8 +14,10 @@ type (
 	}
 )
 
+// @group user
+// @auth false
 // @handler register
-// @router /user/register [get]
+// @router /register [get]
 type (
 	RegisterReq struct {
 		Name     string `form:"name" binding:"required"` //用户名

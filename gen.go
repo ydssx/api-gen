@@ -49,23 +49,30 @@ func %sHandler(c *gin.Context) {
 }
 `
 
-func addSwagAnnotation(basicPath string, info TypeInfo) (s string) {
-	s = `
-// @Param %s %s %s true 请求参数
+func addSwagAnnotation(info TypeInfo) (s string) {
+	s = `// @Param %s %s %s true "请求参数"
 // @Success 200	{object} util.Response{data=%s}
 // @Router %s [%s]`
+	if info.Auth {
+		s = `// @Security ApiKeyAuth
+// @Param %s %s %s true "请求参数"
+// @Success 200	{object} util.Response{data=%s}
+// @Router %s [%s]`
+	}
+
 	paramType := "body"
 	if info.Method == http.MethodGet {
 		paramType = "query"
 	}
-	s = fmt.Sprintf(s, info.HandlerName, paramType, info.Req, info.Resp, basicPath+info.Path, strings.ToLower(info.Method))
+
+	s = fmt.Sprintf(s, info.HandlerName, paramType, info.Req, info.Resp, info.Group+"/"+info.Path, strings.ToLower(info.Method))
 	return
 }
 
-func genHandlerFunc(filename, basicPath string, def TypeInfo, logic FuncInfo) FuncInfo {
+func genHandlerFunc(filename string, def TypeInfo, logic FuncInfo) FuncInfo {
 
 	// 要追加的内容
-	content := fmt.Sprintf(handlerTmp, addSwagAnnotation(basicPath, def), def.HandlerName, def.Req, strings.Join(logic.Results, ", "), logic.Pkg, logic.FuncName, logic.Results[0])
+	content := fmt.Sprintf(handlerTmp, addSwagAnnotation(def), def.HandlerName, def.Req, strings.Join(logic.Results, ", "), logic.Pkg, logic.FuncName, logic.Results[0])
 
 	return writeDecl(filename, content)
 }

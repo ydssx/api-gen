@@ -1,0 +1,98 @@
+basePath: /api/v1
+definitions:
+  types.LoginReq:
+    properties:
+      name:
+        description: 用户名
+        type: string
+      password:
+        type: string
+    required:
+    - name
+    type: object
+  types.LoginResp:
+    properties:
+      user:
+        type: string
+    type: object
+  types.RegisterResp:
+    properties:
+      user:
+        type: string
+    type: object
+  util.Response:
+    properties:
+      code:
+        type: integer
+      data: {}
+      msg:
+        type: string
+    type: object
+info:
+  contact: {}
+  title: Swagger Example API
+  version: "1.0"
+paths:
+  /example/helloworld:
+    get:
+      consumes:
+      - application/json
+      description: do ping
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      summary: ping example
+      tags:
+      - example
+  /user/login:
+    post:
+      parameters:
+      - description: 请求参数
+        in: body
+        name: Login
+        required: true
+        schema:
+          $ref: '#/definitions/types.LoginReq'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/util.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/types.LoginResp'
+              type: object
+      security:
+      - ApiKeyAuth: []
+  /user/register:
+    get:
+      parameters:
+      - description: 用户名
+        in: query
+        name: name
+        required: true
+        type: string
+      - in: query
+        name: password
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/util.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/types.RegisterResp'
+              type: object
+securityDefinitions:
+  ApiKeyAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

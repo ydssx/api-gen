@@ -14,9 +14,12 @@ type ApiInfo struct {
 	Path        string
 	Method      string
 	HandlerName string
+	Auth        bool
+	Group       string
 }
 
 func ParseComments(comment string) (info ApiInfo) {
+	info.Auth = true
 	list := strings.Fields(comment)
 	for i := 0; i < len(list); i++ {
 		switch list[i] {
@@ -25,6 +28,12 @@ func ParseComments(comment string) (info ApiInfo) {
 		case "@router":
 			info.Path = list[i+1]
 			info.Method = strings.Trim(strings.ToUpper(list[i+2]), "[]")
+		case "@auth":
+			if list[i+1] == "false" {
+				info.Auth = false
+			}
+		case "@group":
+			info.Group = list[i+1]
 		}
 	}
 	return
