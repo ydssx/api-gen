@@ -7,11 +7,13 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/token"
+	"html/template"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"unicode"
 
 	"github.com/pkg/errors"
 )
@@ -49,24 +51,53 @@ func %sHandler(c *gin.Context) {
 }
 `
 
-func addSwagAnnotation(info TypeInfo) (s string) {
-	s = `// @Param %s %s %s true "请求参数"
-// @Success 200	{object} util.Response{data=%s}
-// @Router %s [%s]`
-	if info.Auth {
-		s = `// @Security ApiKeyAuth
-// @Param %s %s %s true "请求参数"
-// @Success 200	{object} util.Response{data=%s}
-// @Router %s [%s]`
+const annotationTemplate = `{{ if .Auth }}// @Security ApiKeyAuth{{ end }}
+// @Param {{ .HandlerName }} {{ .ParamType }} {{ .Req }} true "请求参数"
+// @Success 200	{object} util.Response{data={{ .Resp }}}
+// @Router {{ .Group }}{{ .Path }} [{{ .Method|ToLower }}]`
+
+type AnnotationData struct {
+	Auth        bool
+	HandlerName string
+	ParamType   string
+	Req         string
+	Resp        string
+	Group       string
+	Path        string
+	Method      string
+}
+
+func addSwagAnnotation(info TypeInfo) string {
+	tmpl, err := template.New("annotation").Funcs(template.FuncMap{
+		"ToLower": strings.ToLower,
+	}).Parse(annotationTemplate)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	paramType := "body"
-	if info.Method == http.MethodGet {
-		paramType = "query"
+	var sb strings.Builder
+	err = tmpl.Execute(&sb, AnnotationData{
+		Auth:        info.Auth,
+		HandlerName: info.HandlerName,
+		ParamType:   getParamType(info.Method),
+		Req:         info.Req,
+		Resp:        info.Resp,
+		Group:       info.Group,
+		Path:        info.Path,
+		Method:      info.Method,
+	})
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	s = fmt.Sprintf(s, info.HandlerName, paramType, info.Req, info.Resp, info.Group+"/"+info.Path, strings.ToLower(info.Method))
-	return
+	return strings.TrimLeftFunc(sb.String(), unicode.IsSpace)
+}
+
+func getParamType(method string) string {
+	if method == http.MethodGet {
+		return "query"
+	}
+	return "body"
 }
 
 func genHandlerFunc(filename string, def TypeInfo, logic FuncInfo) FuncInfo {
@@ -132,26 +163,6 @@ func findInsertIndex(stmts []ast.Stmt, startPos, endPos token.Pos) int {
 	return len(stmts)
 }
 
-func findInsertPos(stmts []ast.Stmt, newCallExpr ast.Stmt, group string, startPos, endPos token.Pos) []ast.Stmt {
-	var found bool
-	for i, stmt := range stmts {
-		if v, ok := stmt.(*ast.ExprStmt); ok {
-			if call, ok := v.X.(*ast.CallExpr); ok {
-				if indent, ok := call.Args[0].(*ast.BasicLit); ok && indent.Value == fmt.Sprintf(`"%s"`, group) {
-					found = true
-					startPos = call.Rparen
-					findInsertPos(stmts[i+1:], newCallExpr, group, startPos, endPos)
-				}
-			}
-		} else if v, ok := stmt.(*ast.BlockStmt); ok && found {
-			v.List = append(v.List, newCallExpr)
-			return stmts
-		}
-	}
-	stmts = append(stmts, newCallExpr)
-	return stmts
-}
-
 func fileAppend(filename, content string) error {
 	// 打开文件，如果文件不存在则创建，以追加模式打开
 	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
@@ -183,6 +194,17 @@ func isFunctionExists(file *ast.File, functionName string) bool {
 	return false
 }
 
+type RouterExprInfo struct {
+	RG         string
+	Method     string
+	PathArg    string
+	HandlerArg struct {
+		HandlerPkg  string
+		HandlerFunc string
+	}
+}
+
+// TODO:生成router时保留函数内部注释
 func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc FuncInfo) (err error) {
 	// 解析Go文件
 	fset := token.NewFileSet()
@@ -204,22 +226,36 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 		return fmt.Errorf("Failed to find target func :%s ,%v", routerFunc, err)
 	}
 
+	info := RouterExprInfo{
+		RG:      targetFunc.Type.Params.List[0].Names[0].Name,
+		Method:  apiInfo.Method,
+		PathArg: `"` + apiInfo.Path + `"`,
+		HandlerArg: struct {
+			HandlerPkg  string
+			HandlerFunc string
+		}{handlerFunc.Pkg, handlerFunc.FuncName},
+	}
+	if apiInfo.Group != "" {
+		if g := findRouterGroup(targetFunc.Body.List, apiInfo.Group); g != "" {
+			info.RG = g
+		}
+	}
 	// 创建新的CallExpr节点
 	newCallExpr := &ast.ExprStmt{
 		X: &ast.CallExpr{
 			Fun: &ast.SelectorExpr{
-				X:   ast.NewIdent(targetFunc.Type.Params.List[0].Names[0].Name),
-				Sel: ast.NewIdent(apiInfo.Method),
+				X:   ast.NewIdent(info.RG),
+				Sel: ast.NewIdent(info.Method),
 			},
 			Args: []ast.Expr{
-				ast.NewIdent(`"` + apiInfo.Path + `"`),
+				ast.NewIdent(info.PathArg),
 				// ast.NewIdent(handlerFunc.Pkg + "." + handlerFunc.FuncName),
-				&ast.SelectorExpr{X: ast.NewIdent(handlerFunc.Pkg), Sel: ast.NewIdent(handlerFunc.FuncName)},
+				&ast.SelectorExpr{X: ast.NewIdent(info.HandlerArg.HandlerPkg), Sel: ast.NewIdent(info.HandlerArg.HandlerFunc)},
 			},
 		},
 	}
 
-	if isRouterAdded(targetFunc.Body.List, targetFunc.Type.Params.List[0].Names[0].Name, apiInfo.Method, `"`+apiInfo.Path+`"`, handlerFunc.Pkg+"."+handlerFunc.FuncName) {
+	if isRouterAdded(targetFunc.Body.List, info) {
 		log.Println("router", apiInfo.Path, "already exists. Skipping...")
 		return
 	}
@@ -233,7 +269,7 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 
 	// 在目标函数体的语句列表中找到适当的位置插入新的调用表达式
 	if apiInfo.Group != "" {
-		targetFunc.Body.List = findInsertPos(targetFunc.Body.List, newCallExpr, apiInfo.Group, targetFunc.Body.Lbrace+1, targetFunc.Body.Rbrace-1)
+		targetFunc.Body.List = findInsertPos(targetFunc.Body.List, newCallExpr, apiInfo.Group)
 	} else {
 		insertIndex := findInsertIndex(targetFunc.Body.List, targetFunc.Body.Lbrace+1, targetFunc.Body.Rbrace-1)
 		targetFunc.Body.List = append(targetFunc.Body.List[:insertIndex], append([]ast.Stmt{newCallExpr}, targetFunc.Body.List[insertIndex:]...)...)
@@ -280,29 +316,125 @@ func hasEmptyLineAtEnd(filename string) (bool, error) {
 	return false, nil
 }
 
-func isRouterAdded(stmts []ast.Stmt, fName, method, path, handlerName string) bool {
+func isRouterAdded(stmts []ast.Stmt, info RouterExprInfo) bool {
 	for _, stmt := range stmts {
-		if stmt, ok := stmt.(*ast.ExprStmt); ok {
-			if call, ok := stmt.X.(*ast.CallExpr); ok {
-				funcName := call.Fun.(*ast.SelectorExpr).X.(*ast.Ident).Name
-				meth := call.Fun.(*ast.SelectorExpr).Sel.Name
-				if len(call.Args) != 2 {
-					continue
+		switch stmt := stmt.(type) {
+		case *ast.ExprStmt:
+			if callExpr, ok := stmt.X.(*ast.CallExpr); ok {
+				if selectorExpr, ok := callExpr.Fun.(*ast.SelectorExpr); ok {
+					funcName := ""
+					if indent, ok := selectorExpr.X.(*ast.Ident); ok {
+						funcName = indent.Name
+					}
+					method := selectorExpr.Sel.Name
+					if funcName != info.RG || method != info.Method || len(callExpr.Args) != 2 {
+						continue
+					}
 				}
-				arg1 := call.Args[0].(*ast.BasicLit).Value
-				pkg := call.Args[1].(*ast.SelectorExpr).X.(*ast.Ident).Name
-				handler := call.Args[1].(*ast.SelectorExpr).Sel.Name
-				arg2 := pkg + "." + handler
-				if fName == funcName && meth == method && path == arg1 && handlerName == arg2 {
+				path := ""
+				handlerName := ""
+				handlerPkg := ""
+				if pathLit, ok := callExpr.Args[0].(*ast.BasicLit); ok {
+					path = pathLit.Value
+				}
+				if selExpr, ok := callExpr.Args[1].(*ast.SelectorExpr); ok {
+					handlerPkg = selExpr.X.(*ast.Ident).Name
+					handlerName = selExpr.Sel.Name
+				}
+				if path == info.PathArg && handlerName == info.HandlerArg.HandlerFunc && handlerPkg == info.HandlerArg.HandlerPkg {
 					return true
 				}
 			}
-		}
-		if stmt, ok := stmt.(*ast.BlockStmt); ok {
-			if isRouterAdded(stmt.List, fName, method, path, handlerName) {
+
+		case *ast.BlockStmt:
+			if isRouterAdded(stmt.List, info) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func findRouterGroup(stmts []ast.Stmt, group string) string {
+	for _, stmt := range stmts {
+		switch stmt := stmt.(type) {
+		case *ast.ExprStmt:
+			if call, ok := stmt.X.(*ast.CallExpr); ok {
+				if isRouterGroupCall(call, group) {
+					return getRouterGroupName(call)
+				}
+			}
+		case *ast.BlockStmt:
+			groupName := findRouterGroup(stmt.List, group)
+			if groupName != "" {
+				return groupName
+			}
+		case *ast.AssignStmt:
+			if len(stmt.Rhs) > 0 {
+				if call, ok := stmt.Rhs[0].(*ast.CallExpr); ok && isRouterGroupCall(call, group) {
+					if len(stmt.Lhs) > 0 {
+						if lhs, ok := stmt.Lhs[0].(*ast.Ident); ok {
+							return lhs.Name
+						}
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func isRouterGroupCall(call *ast.CallExpr, group string) bool {
+	if len(call.Args) < 1 {
+		return false
+	}
+	arg, ok := call.Args[0].(*ast.BasicLit)
+	if !ok || arg.Kind != token.STRING {
+		return false
+	}
+	return arg.Value == fmt.Sprintf(`"%s"`, group) && isSelectorExpr(call.Fun, "Group")
+}
+
+func isSelectorExpr(expr ast.Expr, name string) bool {
+	if selector, ok := expr.(*ast.SelectorExpr); ok {
+		return selector.Sel.Name == name
+	}
+	return false
+}
+
+func getRouterGroupName(call *ast.CallExpr) string {
+	selector := call.Fun.(*ast.SelectorExpr)
+	ident := selector.X.(*ast.Ident)
+	return ident.Name
+}
+
+func findInsertPos(stmts []ast.Stmt, newCallExpr ast.Stmt, group string) []ast.Stmt {
+	var found bool
+	for i, stmt := range stmts {
+		switch stmt := stmt.(type) {
+		case *ast.ExprStmt:
+			if call, ok := stmt.X.(*ast.CallExpr); ok {
+				if isRouterGroupCall(call, group) {
+					found = true
+					findInsertPos(stmts[i+1:], newCallExpr, group)
+				}
+			}
+		case *ast.BlockStmt:
+			findInsertPos(stmt.List, newCallExpr, group)
+			if found {
+				stmt.List = append(stmt.List, newCallExpr)
+				return stmts
+			}
+		case *ast.AssignStmt:
+			if len(stmt.Rhs) > 0 {
+				if call, ok := stmt.Rhs[0].(*ast.CallExpr); ok && isRouterGroupCall(call, group) {
+					found = true
+					findInsertPos(stmts[i+1:], newCallExpr, group)
+				}
+			}
+
+		}
+	}
+	stmts = append(stmts, newCallExpr)
+	return stmts
 }
