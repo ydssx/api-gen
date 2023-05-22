@@ -9,7 +9,6 @@ import (
 )
 
 type Config struct {
-	Group    string   `yaml:"group"`
 	ApiPath  []string `yaml:"apiPath"`
 	TypeFile string   `yaml:"typeFile"`
 
@@ -43,7 +42,7 @@ func main() {
 	if err := yaml.Unmarshal(configData, &cfg); err != nil {
 		log.Fatalf("failed to parse config file: %v", err)
 	}
-	
+
 	for _, api := range cfg.ApiPath {
 		typeInfo := parseTypes(cfg.TypeFile, api)
 

@@ -132,6 +132,26 @@ func findInsertIndex(stmts []ast.Stmt, startPos, endPos token.Pos) int {
 	return len(stmts)
 }
 
+func findInsertPos(stmts []ast.Stmt, newCallExpr ast.Stmt, group string, startPos, endPos token.Pos) []ast.Stmt {
+	var found bool
+	for i, stmt := range stmts {
+		if v, ok := stmt.(*ast.ExprStmt); ok {
+			if call, ok := v.X.(*ast.CallExpr); ok {
+				if indent, ok := call.Args[0].(*ast.BasicLit); ok && indent.Value == fmt.Sprintf(`"%s"`, group) {
+					found = true
+					startPos = call.Rparen
+					findInsertPos(stmts[i+1:], newCallExpr, group, startPos, endPos)
+				}
+			}
+		} else if v, ok := stmt.(*ast.BlockStmt); ok && found {
+			v.List = append(v.List, newCallExpr)
+			return stmts
+		}
+	}
+	stmts = append(stmts, newCallExpr)
+	return stmts
+}
+
 func fileAppend(filename, content string) error {
 	// 打开文件，如果文件不存在则创建，以追加模式打开
 	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
@@ -207,9 +227,12 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 	copy(newFile.Decls, file.Decls)
 
 	// 在目标函数体的语句列表中找到适当的位置插入新的调用表达式
-	insertIndex := findInsertIndex(targetFunc.Body.List, targetFunc.Body.Lbrace+1, targetFunc.Body.Rbrace-1)
-	targetFunc.Body.List = append(targetFunc.Body.List[:insertIndex], append([]ast.Stmt{newCallExpr}, targetFunc.Body.List[insertIndex:]...)...)
-
+	if apiInfo.Group != "" {
+		targetFunc.Body.List = findInsertPos(targetFunc.Body.List, newCallExpr, apiInfo.Group, targetFunc.Body.Lbrace+1, targetFunc.Body.Rbrace-1)
+	} else {
+		insertIndex := findInsertIndex(targetFunc.Body.List, targetFunc.Body.Lbrace+1, targetFunc.Body.Rbrace-1)
+		targetFunc.Body.List = append(targetFunc.Body.List[:insertIndex], append([]ast.Stmt{newCallExpr}, targetFunc.Body.List[insertIndex:]...)...)
+	}
 	// 将目标函数替换为修改后的函数
 	for i, decl := range newFile.Decls {
 		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == targetFunc.Name.Name {
