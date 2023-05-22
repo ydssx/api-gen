@@ -1,5 +1,3 @@
-group: user
-
 apiPath:
   - /login
   - /register
