@@ -183,7 +183,6 @@ func isFunctionExists(file *ast.File, functionName string) bool {
 	return false
 }
 
-// TODO:防止router重复添加
 func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc FuncInfo) (err error) {
 	// 解析Go文件
 	fset := token.NewFileSet()
@@ -214,9 +213,15 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 			},
 			Args: []ast.Expr{
 				ast.NewIdent(`"` + apiInfo.Path + `"`),
-				ast.NewIdent(handlerFunc.Pkg + "." + handlerFunc.FuncName),
+				// ast.NewIdent(handlerFunc.Pkg + "." + handlerFunc.FuncName),
+				&ast.SelectorExpr{X: ast.NewIdent(handlerFunc.Pkg), Sel: ast.NewIdent(handlerFunc.FuncName)},
 			},
 		},
+	}
+
+	if isRouterAdded(targetFunc.Body.List, targetFunc.Type.Params.List[0].Names[0].Name, apiInfo.Method, `"`+apiInfo.Path+`"`, handlerFunc.Pkg+"."+handlerFunc.FuncName) {
+		log.Println("router", apiInfo.Path, "already exists. Skipping...")
+		return
 	}
 
 	// 创建新的文件节点，并按原始顺序将函数添加到该节点中
@@ -273,4 +278,31 @@ func hasEmptyLineAtEnd(filename string) (bool, error) {
 	}
 
 	return false, nil
+}
+
+func isRouterAdded(stmts []ast.Stmt, fName, method, path, handlerName string) bool {
+	for _, stmt := range stmts {
+		if stmt, ok := stmt.(*ast.ExprStmt); ok {
+			if call, ok := stmt.X.(*ast.CallExpr); ok {
+				funcName := call.Fun.(*ast.SelectorExpr).X.(*ast.Ident).Name
+				meth := call.Fun.(*ast.SelectorExpr).Sel.Name
+				if len(call.Args) != 2 {
+					continue
+				}
+				arg1 := call.Args[0].(*ast.BasicLit).Value
+				pkg := call.Args[1].(*ast.SelectorExpr).X.(*ast.Ident).Name
+				handler := call.Args[1].(*ast.SelectorExpr).Sel.Name
+				arg2 := pkg + "." + handler
+				if fName == funcName && meth == method && path == arg1 && handlerName == arg2 {
+					return true
+				}
+			}
+		}
+		if stmt, ok := stmt.(*ast.BlockStmt); ok {
+			if isRouterAdded(stmt.List, fName, method, path, handlerName) {
+				return true
+			}
+		}
+	}
+	return false
 }
