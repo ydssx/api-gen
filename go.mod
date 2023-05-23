@@ -3,12 +3,15 @@ module github.com/ydssx/api-gen
 go 1.20
 
 require (
+	github.com/dave/dst v0.27.2
 	github.com/gin-gonic/gin v1.9.0
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.9.2
 	github.com/swaggo/gin-swagger v1.6.0
 )
+
+require golang.org/x/mod v0.9.0 // indirect
 
 require (
 	github.com/KyleBanks/depth v1.2.1 // indirect

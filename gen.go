@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"go/ast"
-	"go/format"
 	"go/parser"
 	"go/printer"
 	"go/token"
@@ -15,6 +14,8 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/dave/dst"
+	"github.com/dave/dst/decorator"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -206,19 +207,270 @@ type RouterExprInfo struct {
 }
 
 // TODO:生成router时保留函数内部注释
+// func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc FuncInfo) (err error) {
+// 	// 解析Go文件
+// 	fset := token.NewFileSet()
+// 	file, err := parser.ParseFile(fset, routerFile, nil, parser.ParseComments)
+// 	if err != nil {
+// 		fmt.Println("Failed to parse file:", err)
+// 		return
+// 	}
+
+// 	// 查找目标函数
+// 	var targetFunc *ast.FuncDecl
+// 	for _, decl := range file.Decls {
+// 		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == routerFunc {
+// 			targetFunc = fn
+// 			break
+// 		}
+// 	}
+// 	if targetFunc == nil {
+// 		return fmt.Errorf("Failed to find target func :%s ,%v", routerFunc, err)
+// 	}
+
+// 	x := targetFunc.Type.Params.List[0].Names[0].Name
+// 	info := RouterExprInfo{
+// 		RG:      x,
+// 		Method:  apiInfo.Method,
+// 		PathArg: `"` + apiInfo.Path + `"`,
+// 		HandlerArg: struct {
+// 			HandlerPkg  string
+// 			HandlerFunc string
+// 		}{handlerFunc.Pkg, handlerFunc.FuncName},
+// 	}
+// 	if apiInfo.Group != "" {
+// 		if g := findRouterGroup(targetFunc.Body.List, apiInfo.Group); g != "" {
+// 			info.RG = g
+// 		} else {
+// 			logrus.Warningf("Failed to find target group :%s", apiInfo.Group)
+// 		}
+// 	}
+// 	// 创建新的CallExpr节点
+// 	newCallExpr := &ast.ExprStmt{
+// 		X: &ast.CallExpr{
+// 			Fun: &ast.SelectorExpr{
+// 				X:   ast.NewIdent(info.RG),
+// 				Sel: ast.NewIdent(info.Method),
+// 			},
+// 			Args: []ast.Expr{
+// 				ast.NewIdent(info.PathArg),
+// 				// ast.NewIdent(handlerFunc.Pkg + "." + handlerFunc.FuncName),
+// 				&ast.SelectorExpr{X: ast.NewIdent(info.HandlerArg.HandlerPkg), Sel: ast.NewIdent(info.HandlerArg.HandlerFunc)},
+// 			},
+// 		},
+// 	}
+
+// 	if isRouterAdded(targetFunc.Body.List, info) {
+// 		log.Println("router", apiInfo.Path, "already exists. Skipping...")
+// 		return
+// 	}
+
+// 	// 创建新的文件节点，并按原始顺序将函数添加到该节点中
+// 	newFile := &ast.File{
+// 		Name:  file.Name,
+// 		Decls: make([]ast.Decl, len(file.Decls)),
+// 	}
+// 	copy(newFile.Decls, file.Decls)
+
+// 	// 在目标函数体的语句列表中找到适当的位置插入新的调用表达式
+// 	if apiInfo.Group != "" && x != info.RG {
+// 		findAndInsert(targetFunc.Body.List, newCallExpr, apiInfo.Group)
+// 	} else {
+// 		insertIndex := findInsertIndex(targetFunc.Body.List, targetFunc.Body.Lbrace+1, targetFunc.Body.Rbrace-1)
+// 		targetFunc.Body.List = append(targetFunc.Body.List[:insertIndex], append([]ast.Stmt{newCallExpr}, targetFunc.Body.List[insertIndex:]...)...)
+// 	}
+// 	// 将目标函数替换为修改后的函数
+// 	for i, decl := range newFile.Decls {
+// 		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == targetFunc.Name.Name {
+// 			newFile.Decls[i] = targetFunc
+// 			break
+// 		}
+// 	}
+
+// 	outputFile, err := os.OpenFile(routerFile, os.O_WRONLY|os.O_CREATE, 0644)
+// 	if err != nil {
+// 		fmt.Println("Failed to create file:", err)
+// 		return
+// 	}
+// 	defer outputFile.Close()
+
+// 	// 重新写入文件，保留原始文件的格式和注释
+// 	err = format.Node(outputFile, fset, newFile)
+// 	if err != nil {
+// 		fmt.Println("Failed to write file:", err)
+// 		return
+// 	}
+
+// 	fmt.Println("New statement added to", routerFile)
+// 	return nil
+// }
+
+// 判断文件末尾是否有空行
+func hasEmptyLineAtEnd(filename string) (bool, error) {
+	// 读取文件内容
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return false, err
+	}
+
+	// 检查最后一个字符是否是换行符
+	if len(content) > 0 && content[len(content)-1] == '\n' {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func isRouterAdded(stmts []dst.Stmt, info RouterExprInfo) bool {
+	for _, stmt := range stmts {
+		switch stmt := stmt.(type) {
+		case *dst.ExprStmt:
+			if callExpr, ok := stmt.X.(*dst.CallExpr); ok {
+				if selectorExpr, ok := callExpr.Fun.(*dst.SelectorExpr); ok {
+					funcName := ""
+					if indent, ok := selectorExpr.X.(*dst.Ident); ok {
+						funcName = indent.Name
+					}
+					method := selectorExpr.Sel.Name
+					if funcName != info.RG || method != info.Method || len(callExpr.Args) != 2 {
+						continue
+					}
+				}
+				path := ""
+				handlerName := ""
+				handlerPkg := ""
+				if pathLit, ok := callExpr.Args[0].(*dst.BasicLit); ok {
+					path = pathLit.Value
+				}
+				if selExpr, ok := callExpr.Args[1].(*dst.SelectorExpr); ok {
+					handlerPkg = selExpr.X.(*dst.Ident).Name
+					handlerName = selExpr.Sel.Name
+				}
+				if path == info.PathArg && handlerName == info.HandlerArg.HandlerFunc && handlerPkg == info.HandlerArg.HandlerPkg {
+					return true
+				}
+			}
+
+		case *dst.BlockStmt:
+			if isRouterAdded(stmt.List, info) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func findRouterGroup(stmts []dst.Stmt, group string) string {
+	for _, stmt := range stmts {
+		switch stmt := stmt.(type) {
+		case *dst.ExprStmt:
+			if call, ok := stmt.X.(*dst.CallExpr); ok {
+				if isRouterGroupCall(call, group) {
+					return getRouterGroupName(call)
+				}
+			}
+		case *dst.BlockStmt:
+			groupName := findRouterGroup(stmt.List, group)
+			if groupName != "" {
+				return groupName
+			}
+		case *dst.AssignStmt:
+			if len(stmt.Rhs) > 0 {
+				if call, ok := stmt.Rhs[0].(*dst.CallExpr); ok && isRouterGroupCall(call, group) {
+					if len(stmt.Lhs) > 0 {
+						if lhs, ok := stmt.Lhs[0].(*dst.Ident); ok {
+							return lhs.Name
+						}
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func isRouterGroupCall(call *dst.CallExpr, group string) bool {
+	if len(call.Args) < 1 {
+		return false
+	}
+	arg, ok := call.Args[0].(*dst.BasicLit)
+	if !ok || arg.Kind != token.STRING {
+		return false
+	}
+	return arg.Value == fmt.Sprintf(`"%s"`, group) && isSelectorExpr(call.Fun, "Group")
+}
+
+func isSelectorExpr(expr dst.Expr, name string) bool {
+	if selector, ok := expr.(*dst.SelectorExpr); ok {
+		return selector.Sel.Name == name
+	}
+	return false
+}
+
+func getRouterGroupName(call *dst.CallExpr) string {
+	selector := call.Fun.(*dst.SelectorExpr)
+	ident := selector.X.(*dst.Ident)
+	return ident.Name
+}
+
+func findAndInsert(stmts []dst.Stmt, newCallExpr dst.Stmt, group string) []dst.Stmt {
+	var found bool
+	for i, stmt := range stmts {
+		switch stmt := stmt.(type) {
+		case *dst.ExprStmt:
+			if call, ok := stmt.X.(*dst.CallExpr); ok {
+				if isRouterGroupCall(call, group) {
+					stmts = append(stmts[:i+1], insertBlock(stmts[i+1:], newCallExpr)...)
+					return stmts
+				}
+			}
+		case *dst.BlockStmt:
+			findAndInsert(stmt.List, newCallExpr, group)
+			if found {
+				stmt.List = append(stmt.List, newCallExpr)
+				return stmts
+			}
+		case *dst.AssignStmt:
+			if len(stmt.Rhs) > 0 {
+				if call, ok := stmt.Rhs[0].(*dst.CallExpr); ok && isRouterGroupCall(call, group) {
+					stmts = append(stmts[:i+1], insertBlock(stmts[i+1:], newCallExpr)...)
+					return stmts
+				}
+			}
+
+		}
+	}
+	if !found {
+		stmts = append(stmts, newCallExpr)
+	}
+	return stmts
+}
+
+func insertBlock(stmts []dst.Stmt, newCallExpr dst.Stmt) []dst.Stmt {
+	for _, stmt := range stmts {
+		switch stmt := stmt.(type) {
+		case *dst.BlockStmt:
+			stmt.List = append(stmt.List, newCallExpr)
+			return stmts
+		}
+	}
+	stmts = append(stmts, newCallExpr)
+	return stmts
+}
+
 func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc FuncInfo) (err error) {
 	// 解析Go文件
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, routerFile, nil, parser.ParseComments)
+	file, err := decorator.ParseFile(fset, routerFile, nil, parser.ParseComments)
 	if err != nil {
 		fmt.Println("Failed to parse file:", err)
 		return
 	}
 
 	// 查找目标函数
-	var targetFunc *ast.FuncDecl
+	var targetFunc *dst.FuncDecl
 	for _, decl := range file.Decls {
-		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == routerFunc {
+		if fn, ok := decl.(*dst.FuncDecl); ok && fn.Name.Name == routerFunc {
 			targetFunc = fn
 			break
 		}
@@ -245,16 +497,16 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 		}
 	}
 	// 创建新的CallExpr节点
-	newCallExpr := &ast.ExprStmt{
-		X: &ast.CallExpr{
-			Fun: &ast.SelectorExpr{
-				X:   ast.NewIdent(info.RG),
-				Sel: ast.NewIdent(info.Method),
+	newCallExpr := &dst.ExprStmt{
+		X: &dst.CallExpr{
+			Fun: &dst.SelectorExpr{
+				X:   dst.NewIdent(info.RG),
+				Sel: dst.NewIdent(info.Method),
 			},
-			Args: []ast.Expr{
-				ast.NewIdent(info.PathArg),
+			Args: []dst.Expr{
+				dst.NewIdent(info.PathArg),
 				// ast.NewIdent(handlerFunc.Pkg + "." + handlerFunc.FuncName),
-				&ast.SelectorExpr{X: ast.NewIdent(info.HandlerArg.HandlerPkg), Sel: ast.NewIdent(info.HandlerArg.HandlerFunc)},
+				&dst.SelectorExpr{X: dst.NewIdent(info.HandlerArg.HandlerPkg), Sel: dst.NewIdent(info.HandlerArg.HandlerFunc)},
 			},
 		},
 	}
@@ -265,23 +517,24 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 	}
 
 	// 创建新的文件节点，并按原始顺序将函数添加到该节点中
-	newFile := &ast.File{
-		Name:  file.Name,
-		Decls: make([]ast.Decl, len(file.Decls)),
-	}
-	copy(newFile.Decls, file.Decls)
+	// newFile := &dst.File{
+	// 	Name:  file.Name,
+	// 	Decls: make([]dst.Decl, len(file.Decls)),
+	// }
+	// copy(newFile.Decls, file.Decls)
 
 	// 在目标函数体的语句列表中找到适当的位置插入新的调用表达式
 	if apiInfo.Group != "" && x != info.RG {
 		findAndInsert(targetFunc.Body.List, newCallExpr, apiInfo.Group)
 	} else {
-		insertIndex := findInsertIndex(targetFunc.Body.List, targetFunc.Body.Lbrace+1, targetFunc.Body.Rbrace-1)
-		targetFunc.Body.List = append(targetFunc.Body.List[:insertIndex], append([]ast.Stmt{newCallExpr}, targetFunc.Body.List[insertIndex:]...)...)
+		// insertIndex := findInsertIndex(targetFunc.Body.List, targetFunc.Body.Lbrace+1, targetFunc.Body.Rbrace-1)
+		insertIndex := len(targetFunc.Body.List)
+		targetFunc.Body.List = append(targetFunc.Body.List[:insertIndex], append([]dst.Stmt{newCallExpr}, targetFunc.Body.List[insertIndex:]...)...)
 	}
 	// 将目标函数替换为修改后的函数
-	for i, decl := range newFile.Decls {
-		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == targetFunc.Name.Name {
-			newFile.Decls[i] = targetFunc
+	for i, decl := range file.Decls {
+		if fn, ok := decl.(*dst.FuncDecl); ok && fn.Name.Name == targetFunc.Name.Name {
+			file.Decls[i] = targetFunc
 			break
 		}
 	}
@@ -292,9 +545,8 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 		return
 	}
 	defer outputFile.Close()
-
 	// 重新写入文件，保留原始文件的格式和注释
-	err = format.Node(outputFile, fset, newFile)
+	err = decorator.Fprint(outputFile, file)
 	if err != nil {
 		fmt.Println("Failed to write file:", err)
 		return
@@ -303,188 +555,3 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 	fmt.Println("New statement added to", routerFile)
 	return nil
 }
-
-// 判断文件末尾是否有空行
-func hasEmptyLineAtEnd(filename string) (bool, error) {
-	// 读取文件内容
-	content, err := os.ReadFile(filename)
-	if err != nil {
-		return false, err
-	}
-
-	// 检查最后一个字符是否是换行符
-	if len(content) > 0 && content[len(content)-1] == '\n' {
-		return true, nil
-	}
-
-	return false, nil
-}
-
-func isRouterAdded(stmts []ast.Stmt, info RouterExprInfo) bool {
-	for _, stmt := range stmts {
-		switch stmt := stmt.(type) {
-		case *ast.ExprStmt:
-			if callExpr, ok := stmt.X.(*ast.CallExpr); ok {
-				if selectorExpr, ok := callExpr.Fun.(*ast.SelectorExpr); ok {
-					funcName := ""
-					if indent, ok := selectorExpr.X.(*ast.Ident); ok {
-						funcName = indent.Name
-					}
-					method := selectorExpr.Sel.Name
-					if funcName != info.RG || method != info.Method || len(callExpr.Args) != 2 {
-						continue
-					}
-				}
-				path := ""
-				handlerName := ""
-				handlerPkg := ""
-				if pathLit, ok := callExpr.Args[0].(*ast.BasicLit); ok {
-					path = pathLit.Value
-				}
-				if selExpr, ok := callExpr.Args[1].(*ast.SelectorExpr); ok {
-					handlerPkg = selExpr.X.(*ast.Ident).Name
-					handlerName = selExpr.Sel.Name
-				}
-				if path == info.PathArg && handlerName == info.HandlerArg.HandlerFunc && handlerPkg == info.HandlerArg.HandlerPkg {
-					return true
-				}
-			}
-
-		case *ast.BlockStmt:
-			if isRouterAdded(stmt.List, info) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func findRouterGroup(stmts []ast.Stmt, group string) string {
-	for _, stmt := range stmts {
-		switch stmt := stmt.(type) {
-		case *ast.ExprStmt:
-			if call, ok := stmt.X.(*ast.CallExpr); ok {
-				if isRouterGroupCall(call, group) {
-					return getRouterGroupName(call)
-				}
-			}
-		case *ast.BlockStmt:
-			groupName := findRouterGroup(stmt.List, group)
-			if groupName != "" {
-				return groupName
-			}
-		case *ast.AssignStmt:
-			if len(stmt.Rhs) > 0 {
-				if call, ok := stmt.Rhs[0].(*ast.CallExpr); ok && isRouterGroupCall(call, group) {
-					if len(stmt.Lhs) > 0 {
-						if lhs, ok := stmt.Lhs[0].(*ast.Ident); ok {
-							return lhs.Name
-						}
-					}
-				}
-			}
-		}
-	}
-	return ""
-}
-
-func isRouterGroupCall(call *ast.CallExpr, group string) bool {
-	if len(call.Args) < 1 {
-		return false
-	}
-	arg, ok := call.Args[0].(*ast.BasicLit)
-	if !ok || arg.Kind != token.STRING {
-		return false
-	}
-	return arg.Value == fmt.Sprintf(`"%s"`, group) && isSelectorExpr(call.Fun, "Group")
-}
-
-func isSelectorExpr(expr ast.Expr, name string) bool {
-	if selector, ok := expr.(*ast.SelectorExpr); ok {
-		return selector.Sel.Name == name
-	}
-	return false
-}
-
-func getRouterGroupName(call *ast.CallExpr) string {
-	selector := call.Fun.(*ast.SelectorExpr)
-	ident := selector.X.(*ast.Ident)
-	return ident.Name
-}
-
-func findAndInsert(stmts []ast.Stmt, newCallExpr ast.Stmt, group string) []ast.Stmt {
-	var found bool
-	for i, stmt := range stmts {
-		switch stmt := stmt.(type) {
-		case *ast.ExprStmt:
-			if call, ok := stmt.X.(*ast.CallExpr); ok {
-				if isRouterGroupCall(call, group) {
-					stmts = append(stmts[:i+1], insertBlock(stmts[i+1:], newCallExpr)...)
-					return stmts
-				}
-			}
-		case *ast.BlockStmt:
-			findAndInsert(stmt.List, newCallExpr, group)
-			if found {
-				stmt.List = append(stmt.List, newCallExpr)
-				return stmts
-			}
-		case *ast.AssignStmt:
-			if len(stmt.Rhs) > 0 {
-				if call, ok := stmt.Rhs[0].(*ast.CallExpr); ok && isRouterGroupCall(call, group) {
-					stmts = append(stmts[:i+1], insertBlock(stmts[i+1:], newCallExpr)...)
-					return stmts
-				}
-			}
-
-		}
-	}
-	if !found {
-		stmts = append(stmts, newCallExpr)
-	}
-	return stmts
-}
-
-func insertBlock(stmts []ast.Stmt, newCallExpr ast.Stmt) []ast.Stmt {
-	for _, stmt := range stmts {
-		switch stmt := stmt.(type) {
-		case *ast.BlockStmt:
-			stmt.List = append(stmt.List, newCallExpr)
-			return stmts
-		}
-	}
-	stmts = append(stmts, newCallExpr)
-	return stmts
-}
-
-
-// func findInsertPos(stmts []ast.Stmt, newCallExpr ast.Stmt, group string) (found bool) {
-// 	for i, stmt := range stmts {
-// 		switch stmt := stmt.(type) {
-// 		case *ast.ExprStmt:
-// 			if call, ok := stmt.X.(*ast.CallExpr); ok {
-// 				if isRouterGroupCall(call, group) {
-// 					insertBlock(stmts[i+1:], newCallExpr)
-// 					return true
-// 				}
-// 			}
-// 		case *ast.BlockStmt:
-// 			if findInsertPos(stmt.List, newCallExpr, group) {
-// 				stmt.List = append(stmt.List, newCallExpr)
-// 				return true
-// 			}
-// 		case *ast.AssignStmt:
-// 			if len(stmt.Rhs) > 0 {
-// 				if call, ok := stmt.Rhs[0].(*ast.CallExpr); ok && isRouterGroupCall(call, group) {
-// 					insertBlock(stmts[i+1:], newCallExpr)
-// 					return true
-// 				}
-// 			}
-
-// 		}
-// 	}
-// 	if !found {
-// 		stmts = append(stmts, newCallExpr)
-// 	}
-// 	return
-// }
