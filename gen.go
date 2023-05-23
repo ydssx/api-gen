@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 var logicTmp = `
@@ -226,8 +227,9 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 		return fmt.Errorf("Failed to find target func :%s ,%v", routerFunc, err)
 	}
 
+	x := targetFunc.Type.Params.List[0].Names[0].Name
 	info := RouterExprInfo{
-		RG:      targetFunc.Type.Params.List[0].Names[0].Name,
+		RG:      x,
 		Method:  apiInfo.Method,
 		PathArg: `"` + apiInfo.Path + `"`,
 		HandlerArg: struct {
@@ -238,6 +240,8 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 	if apiInfo.Group != "" {
 		if g := findRouterGroup(targetFunc.Body.List, apiInfo.Group); g != "" {
 			info.RG = g
+		} else {
+			logrus.Warningf("Failed to find target group :%s", apiInfo.Group)
 		}
 	}
 	// 创建新的CallExpr节点
@@ -268,8 +272,8 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 	copy(newFile.Decls, file.Decls)
 
 	// 在目标函数体的语句列表中找到适当的位置插入新的调用表达式
-	if apiInfo.Group != "" {
-		targetFunc.Body.List = findInsertPos(targetFunc.Body.List, newCallExpr, apiInfo.Group)
+	if apiInfo.Group != "" && x != info.RG {
+		findAndInsert(targetFunc.Body.List, newCallExpr, apiInfo.Group)
 	} else {
 		insertIndex := findInsertIndex(targetFunc.Body.List, targetFunc.Body.Lbrace+1, targetFunc.Body.Rbrace-1)
 		targetFunc.Body.List = append(targetFunc.Body.List[:insertIndex], append([]ast.Stmt{newCallExpr}, targetFunc.Body.List[insertIndex:]...)...)
@@ -408,19 +412,19 @@ func getRouterGroupName(call *ast.CallExpr) string {
 	return ident.Name
 }
 
-func findInsertPos(stmts []ast.Stmt, newCallExpr ast.Stmt, group string) []ast.Stmt {
+func findAndInsert(stmts []ast.Stmt, newCallExpr ast.Stmt, group string) []ast.Stmt {
 	var found bool
 	for i, stmt := range stmts {
 		switch stmt := stmt.(type) {
 		case *ast.ExprStmt:
 			if call, ok := stmt.X.(*ast.CallExpr); ok {
 				if isRouterGroupCall(call, group) {
-					found = true
-					findInsertPos(stmts[i+1:], newCallExpr, group)
+					stmts = append(stmts[:i+1], insertBlock(stmts[i+1:], newCallExpr)...)
+					return stmts
 				}
 			}
 		case *ast.BlockStmt:
-			findInsertPos(stmt.List, newCallExpr, group)
+			findAndInsert(stmt.List, newCallExpr, group)
 			if found {
 				stmt.List = append(stmt.List, newCallExpr)
 				return stmts
@@ -428,13 +432,59 @@ func findInsertPos(stmts []ast.Stmt, newCallExpr ast.Stmt, group string) []ast.S
 		case *ast.AssignStmt:
 			if len(stmt.Rhs) > 0 {
 				if call, ok := stmt.Rhs[0].(*ast.CallExpr); ok && isRouterGroupCall(call, group) {
-					found = true
-					findInsertPos(stmts[i+1:], newCallExpr, group)
+					stmts = append(stmts[:i+1], insertBlock(stmts[i+1:], newCallExpr)...)
+					return stmts
 				}
 			}
 
 		}
 	}
+	if !found {
+		stmts = append(stmts, newCallExpr)
+	}
+	return stmts
+}
+
+func insertBlock(stmts []ast.Stmt, newCallExpr ast.Stmt) []ast.Stmt {
+	for _, stmt := range stmts {
+		switch stmt := stmt.(type) {
+		case *ast.BlockStmt:
+			stmt.List = append(stmt.List, newCallExpr)
+			return stmts
+		}
+	}
 	stmts = append(stmts, newCallExpr)
 	return stmts
 }
+
+
+// func findInsertPos(stmts []ast.Stmt, newCallExpr ast.Stmt, group string) (found bool) {
+// 	for i, stmt := range stmts {
+// 		switch stmt := stmt.(type) {
+// 		case *ast.ExprStmt:
+// 			if call, ok := stmt.X.(*ast.CallExpr); ok {
+// 				if isRouterGroupCall(call, group) {
+// 					insertBlock(stmts[i+1:], newCallExpr)
+// 					return true
+// 				}
+// 			}
+// 		case *ast.BlockStmt:
+// 			if findInsertPos(stmt.List, newCallExpr, group) {
+// 				stmt.List = append(stmt.List, newCallExpr)
+// 				return true
+// 			}
+// 		case *ast.AssignStmt:
+// 			if len(stmt.Rhs) > 0 {
+// 				if call, ok := stmt.Rhs[0].(*ast.CallExpr); ok && isRouterGroupCall(call, group) {
+// 					insertBlock(stmts[i+1:], newCallExpr)
+// 					return true
+// 				}
+// 			}
+
+// 		}
+// 	}
+// 	if !found {
+// 		stmts = append(stmts, newCallExpr)
+// 	}
+// 	return
+// }

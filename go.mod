@@ -6,6 +6,7 @@ require (
 	github.com/gin-gonic/gin v1.9.0
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/pkg/errors v0.9.1
+	github.com/sirupsen/logrus v1.9.2
 	github.com/swaggo/gin-swagger v1.6.0
 )
 
