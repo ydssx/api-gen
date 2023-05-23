@@ -41,17 +41,22 @@ Example:
 
 ```yaml
 apiPath:
-  - "/api/v1"
-  - "/api/v2"
-typeFile: "types.go"
+  - /register
+  - /login
+
+typeFile: example/types/example.go
+
 logic:
-  file: "logic.go"
-  receiver: "Logic"
+  file: example/logic/logic.go
+  receiver: "*UserLogic"
+
 handler:
-  file: "handler.go"
+  file: example/handler/handler.go
+
 router:
-  file: "router.go"
-  groupFunc: "UserRouter"
+  file: example/router/router.go
+  groupFunc: UserRouter
+
 ```
 
 4. Run the API-GEN tool:
