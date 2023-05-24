@@ -206,105 +206,6 @@ type RouterExprInfo struct {
 	}
 }
 
-// TODO:生成router时保留函数内部注释
-// func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc FuncInfo) (err error) {
-// 	// 解析Go文件
-// 	fset := token.NewFileSet()
-// 	file, err := parser.ParseFile(fset, routerFile, nil, parser.ParseComments)
-// 	if err != nil {
-// 		fmt.Println("Failed to parse file:", err)
-// 		return
-// 	}
-
-// 	// 查找目标函数
-// 	var targetFunc *ast.FuncDecl
-// 	for _, decl := range file.Decls {
-// 		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == routerFunc {
-// 			targetFunc = fn
-// 			break
-// 		}
-// 	}
-// 	if targetFunc == nil {
-// 		return fmt.Errorf("Failed to find target func :%s ,%v", routerFunc, err)
-// 	}
-
-// 	x := targetFunc.Type.Params.List[0].Names[0].Name
-// 	info := RouterExprInfo{
-// 		RG:      x,
-// 		Method:  apiInfo.Method,
-// 		PathArg: `"` + apiInfo.Path + `"`,
-// 		HandlerArg: struct {
-// 			HandlerPkg  string
-// 			HandlerFunc string
-// 		}{handlerFunc.Pkg, handlerFunc.FuncName},
-// 	}
-// 	if apiInfo.Group != "" {
-// 		if g := findRouterGroup(targetFunc.Body.List, apiInfo.Group); g != "" {
-// 			info.RG = g
-// 		} else {
-// 			logrus.Warningf("Failed to find target group :%s", apiInfo.Group)
-// 		}
-// 	}
-// 	// 创建新的CallExpr节点
-// 	newCallExpr := &ast.ExprStmt{
-// 		X: &ast.CallExpr{
-// 			Fun: &ast.SelectorExpr{
-// 				X:   ast.NewIdent(info.RG),
-// 				Sel: ast.NewIdent(info.Method),
-// 			},
-// 			Args: []ast.Expr{
-// 				ast.NewIdent(info.PathArg),
-// 				// ast.NewIdent(handlerFunc.Pkg + "." + handlerFunc.FuncName),
-// 				&ast.SelectorExpr{X: ast.NewIdent(info.HandlerArg.HandlerPkg), Sel: ast.NewIdent(info.HandlerArg.HandlerFunc)},
-// 			},
-// 		},
-// 	}
-
-// 	if isRouterAdded(targetFunc.Body.List, info) {
-// 		log.Println("router", apiInfo.Path, "already exists. Skipping...")
-// 		return
-// 	}
-
-// 	// 创建新的文件节点，并按原始顺序将函数添加到该节点中
-// 	newFile := &ast.File{
-// 		Name:  file.Name,
-// 		Decls: make([]ast.Decl, len(file.Decls)),
-// 	}
-// 	copy(newFile.Decls, file.Decls)
-
-// 	// 在目标函数体的语句列表中找到适当的位置插入新的调用表达式
-// 	if apiInfo.Group != "" && x != info.RG {
-// 		findAndInsert(targetFunc.Body.List, newCallExpr, apiInfo.Group)
-// 	} else {
-// 		insertIndex := findInsertIndex(targetFunc.Body.List, targetFunc.Body.Lbrace+1, targetFunc.Body.Rbrace-1)
-// 		targetFunc.Body.List = append(targetFunc.Body.List[:insertIndex], append([]ast.Stmt{newCallExpr}, targetFunc.Body.List[insertIndex:]...)...)
-// 	}
-// 	// 将目标函数替换为修改后的函数
-// 	for i, decl := range newFile.Decls {
-// 		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == targetFunc.Name.Name {
-// 			newFile.Decls[i] = targetFunc
-// 			break
-// 		}
-// 	}
-
-// 	outputFile, err := os.OpenFile(routerFile, os.O_WRONLY|os.O_CREATE, 0644)
-// 	if err != nil {
-// 		fmt.Println("Failed to create file:", err)
-// 		return
-// 	}
-// 	defer outputFile.Close()
-
-// 	// 重新写入文件，保留原始文件的格式和注释
-// 	err = format.Node(outputFile, fset, newFile)
-// 	if err != nil {
-// 		fmt.Println("Failed to write file:", err)
-// 		return
-// 	}
-
-// 	fmt.Println("New statement added to", routerFile)
-// 	return nil
-// }
-
 // 判断文件末尾是否有空行
 func hasEmptyLineAtEnd(filename string) (bool, error) {
 	// 读取文件内容
@@ -545,6 +446,7 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 		return
 	}
 	defer outputFile.Close()
+	
 	// 重新写入文件，保留原始文件的格式和注释
 	err = decorator.Fprint(outputFile, file)
 	if err != nil {
@@ -553,5 +455,6 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 	}
 
 	fmt.Println("New statement added to", routerFile)
+
 	return nil
 }

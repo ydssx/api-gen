@@ -31,6 +31,7 @@ type APIGenBuilder struct {
 	typeInfo    TypeInfo
 	logicFunc   FuncInfo
 	handlerFunc FuncInfo
+	api         string
 }
 
 func NewAPIGenBuilder() *APIGenBuilder {
