@@ -11,7 +11,10 @@ require (
 	github.com/swaggo/gin-swagger v1.6.0
 )
 
-require golang.org/x/mod v0.9.0 // indirect
+require (
+	github.com/google/go-cmp v0.5.8 // indirect
+	golang.org/x/mod v0.9.0 // indirect
+)
 
 require (
 	github.com/KyleBanks/depth v1.2.1 // indirect
