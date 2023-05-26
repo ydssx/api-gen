@@ -371,7 +371,7 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 		return err
 	}
 
-	x := targetFunc.Type.Params.List[0].Names[0].Name
+	x := findRootRG(targetFunc)
 	info := RouterExprInfo{
 		RG:      x,
 		Method:  apiInfo.Method,

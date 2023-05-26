@@ -18,9 +18,11 @@ func BuildRouteTree(routerFile, routerFunc string) (*RouteNode, error) {
 	if err != nil {
 		return nil, err
 	}
-	// TODO:兼容caller可能找不到的情况
-	root := &RouteNode{Caller: targetFunc.Type.Params.List[0].Names[0].Name, Path: "", Children: []*RouteNode{}}
+
+	root := &RouteNode{Caller: findRootRG(targetFunc), Path: "", Children: []*RouteNode{}}
+
 	parseFunction(targetFunc.Body.List, root)
+
 	return root, nil
 }
 
@@ -110,4 +112,26 @@ func DFSPath(root *RouteNode, target string) [][]string {
 	dfs(root, []string{})
 
 	return paths
+}
+
+func findRootRG(funcDecl *dst.FuncDecl) string {
+	paramList := funcDecl.Type.Params.List
+	if len(paramList) > 0 {
+		return paramList[0].Names[0].Name
+	}
+	for _, stmt := range funcDecl.Body.List {
+		switch s := stmt.(type) {
+		case *dst.AssignStmt:
+			if len(s.Rhs) > 0 {
+				if call, ok := s.Rhs[0].(*dst.CallExpr); ok && (isSelectorExpr(call.Fun, "New") || isSelectorExpr(call.Fun, "Default")) && isTargetRG(call.Fun, "gin") {
+					if len(s.Lhs) > 0 {
+						if lhs, ok := s.Lhs[0].(*dst.Ident); ok {
+							return lhs.Name
+						}
+					}
+				}
+			}
+		}
+	}
+	return ""
 }
