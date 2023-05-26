@@ -66,7 +66,7 @@ func (h *GenHandlerFuncHandler) SetNext(next HandlerChain) HandlerChain {
 
 func (h *GenHandlerFuncHandler) Handle(data *APIGenBuilder) {
 	// 生成处理函数的逻辑
-	data.handlerFunc = genHandlerFunc(data.cfg.Handler.File, data.typeInfo, data.logicFunc)
+	data.handlerFunc = genHandlerFunc(data.cfg.Handler.File, data.typeInfo, data.logicFunc, data.cfg)
 
 	// 调用下一个处理者
 	if h.next != nil {

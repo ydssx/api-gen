@@ -62,7 +62,7 @@ func (b *APIGenBuilder) WithLogicFunc(logicFile string) *APIGenBuilder {
 }
 
 func (b *APIGenBuilder) WithHandlerFunc(handlerFile string) *APIGenBuilder {
-	b.handlerFunc = genHandlerFunc(handlerFile, b.typeInfo, b.logicFunc)
+	b.handlerFunc = genHandlerFunc(handlerFile, b.typeInfo, b.logicFunc, b.cfg)
 	return b
 }
 

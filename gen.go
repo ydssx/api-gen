@@ -56,6 +56,7 @@ func %sHandler(c *gin.Context) {
 const annotationTemplate = `{{ if .Auth }}// @Security ApiKeyAuth{{ end }}
 // @Param {{ .HandlerName }} {{ .ParamType }} {{ .Req }} true "请求参数"
 // @Success 200	{object} util.Response{data={{ .Resp }}}
+// @Failure 400	{object} util.Response{code=-1}
 // @Router {{ .Group }}{{ .Path }} [{{ .Method|ToLower }}]`
 
 type AnnotationData struct {
@@ -69,7 +70,7 @@ type AnnotationData struct {
 	Method      string
 }
 
-func addSwagAnnotation(info TypeInfo) string {
+func addSwagAnnotation(info TypeInfo, cfg Config) string {
 	tmpl, err := template.New("annotation").Funcs(template.FuncMap{
 		"ToLower": strings.ToLower,
 	}).Parse(annotationTemplate)
@@ -84,7 +85,7 @@ func addSwagAnnotation(info TypeInfo) string {
 		ParamType:   getParamType(info.Method),
 		Req:         info.Req,
 		Resp:        info.Resp,
-		Group:       info.Group,
+		Group:       getGroupPath(cfg.Router.File, cfg.Router.GroupFunc, info.Group),
 		Path:        info.Path,
 		Method:      info.Method,
 	})
@@ -102,10 +103,10 @@ func getParamType(method string) string {
 	return "body"
 }
 
-func genHandlerFunc(filename string, def TypeInfo, logic FuncInfo) FuncInfo {
+func genHandlerFunc(filename string, def TypeInfo, logic FuncInfo, cfg Config) FuncInfo {
 
 	// 要追加的内容
-	content := fmt.Sprintf(handlerTmp, addSwagAnnotation(def), def.HandlerName, def.Req, strings.Join(logic.Results, ", "), logic.Pkg, logic.FuncName, logic.Results[0])
+	content := fmt.Sprintf(handlerTmp, addSwagAnnotation(def, cfg), def.HandlerName, def.Req, strings.Join(logic.Results, ", "), logic.Pkg, logic.FuncName, logic.Results[0])
 
 	return writeDecl(filename, content)
 }
@@ -291,14 +292,18 @@ func findRouterGroup(stmts []dst.Stmt, group string) string {
 }
 
 func isRouterGroupCall(call *dst.CallExpr, group string) bool {
+	return getGroupName(call) == group && isSelectorExpr(call.Fun, "Group")
+}
+
+func getGroupName(call *dst.CallExpr) (group string) {
 	if len(call.Args) < 1 {
-		return false
+		return ""
 	}
 	arg, ok := call.Args[0].(*dst.BasicLit)
 	if !ok || arg.Kind != token.STRING {
-		return false
+		return ""
 	}
-	return arg.Value == fmt.Sprintf(`"%s"`, group) && isSelectorExpr(call.Fun, "Group")
+	return strings.Trim(arg.Value, `"`)
 }
 
 func isSelectorExpr(expr dst.Expr, name string) bool {
@@ -360,24 +365,10 @@ func insertBlock(stmts []dst.Stmt, newCallExpr dst.Stmt) []dst.Stmt {
 }
 
 func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc FuncInfo) (err error) {
-	// 解析Go文件
-	fset := token.NewFileSet()
-	file, err := decorator.ParseFile(fset, routerFile, nil, parser.ParseComments)
-	if err != nil {
-		fmt.Println("Failed to parse file:", err)
-		return
-	}
-
 	// 查找目标函数
-	var targetFunc *dst.FuncDecl
-	for _, decl := range file.Decls {
-		if fn, ok := decl.(*dst.FuncDecl); ok && fn.Name.Name == routerFunc {
-			targetFunc = fn
-			break
-		}
-	}
-	if targetFunc == nil {
-		return fmt.Errorf("Failed to find target func :%s ,%v", routerFunc, err)
+	file, targetFunc, err := searchFunc(routerFile, routerFunc)
+	if err != nil {
+		return err
 	}
 
 	x := targetFunc.Type.Params.List[0].Names[0].Name
@@ -446,7 +437,7 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 		return
 	}
 	defer outputFile.Close()
-	
+
 	// 重新写入文件，保留原始文件的格式和注释
 	err = decorator.Fprint(outputFile, file)
 	if err != nil {
@@ -455,6 +446,26 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 	}
 
 	fmt.Println("New statement added to", routerFile)
-
 	return nil
+}
+
+func searchFunc(routerFile string, routerFunc string) (*dst.File, *dst.FuncDecl, error) {
+	fset := token.NewFileSet()
+	file, err := decorator.ParseFile(fset, routerFile, nil, parser.ParseComments)
+	if err != nil {
+		fmt.Println("Failed to parse file:", err)
+		return nil, nil, err
+	}
+
+	var targetFunc *dst.FuncDecl
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*dst.FuncDecl); ok && fn.Name.Name == routerFunc {
+			targetFunc = fn
+			break
+		}
+	}
+	if targetFunc == nil {
+		return nil, nil, fmt.Errorf("Failed to find target func :%s ,%v", routerFunc, err)
+	}
+	return file, targetFunc, nil
 }
