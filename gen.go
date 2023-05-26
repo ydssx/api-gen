@@ -421,6 +421,9 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 	} else {
 		// insertIndex := findInsertIndex(targetFunc.Body.List, targetFunc.Body.Lbrace+1, targetFunc.Body.Rbrace-1)
 		insertIndex := len(targetFunc.Body.List)
+		if targetFunc.Name.Name == "main" {
+			insertIndex--
+		}
 		targetFunc.Body.List = append(targetFunc.Body.List[:insertIndex], append([]dst.Stmt{newCallExpr}, targetFunc.Body.List[insertIndex:]...)...)
 	}
 	// 将目标函数替换为修改后的函数
