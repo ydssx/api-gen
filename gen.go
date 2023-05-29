@@ -53,10 +53,11 @@ func %sHandler(c *gin.Context) {
 }
 `
 
-const annotationTemplate = `{{ if .Auth }}// @Security ApiKeyAuth{{ end }}
+const annotationTemplate = `{{ if .Summary }}// @Summary {{ .Summary }}{{ end }}{{ if and .Summary .Auth }}
+{{ end }}{{ if .Auth }}// @Security ApiKeyAuth{{ end }}
 // @Param {{ .HandlerName }} {{ .ParamType }} {{ .Req }} true "请求参数"
 // @Success 200	{object} util.Response{data={{ .Resp }}}
-// @Failure 400	{object} util.Response{code=-1}
+// @Failure 400	{object} util.Response
 // @Router {{ .Group }}{{ .Path }} [{{ .Method|ToLower }}]`
 
 type AnnotationData struct {
@@ -68,6 +69,7 @@ type AnnotationData struct {
 	Group       string
 	Path        string
 	Method      string
+	Summary     string
 }
 
 func addSwagAnnotation(info TypeInfo, cfg Config) string {
@@ -88,6 +90,7 @@ func addSwagAnnotation(info TypeInfo, cfg Config) string {
 		Group:       getGroupPath(cfg.Router.File, cfg.Router.GroupFunc, info.Group),
 		Path:        info.Path,
 		Method:      info.Method,
+		Summary:     info.Summary,
 	})
 	if err != nil {
 		log.Fatal(err)

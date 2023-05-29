@@ -16,13 +16,14 @@ type ApiInfo struct {
 	HandlerName string
 	Auth        bool
 	Group       string
+	Summary     string
 }
 
 func ParseComments(comment string) (info ApiInfo) {
 	info.Auth = true
 	list := strings.Fields(comment)
 	for i := 0; i < len(list); i++ {
-		switch list[i] {
+		switch strings.ToLower(list[i]) {
 		case "@handler":
 			info.HandlerName = cases.Title(language.English).String(list[i+1])
 		case "@router":
@@ -34,6 +35,8 @@ func ParseComments(comment string) (info ApiInfo) {
 			}
 		case "@group":
 			info.Group = list[i+1]
+		case "@summary":
+			info.Summary = list[i+1]
 		}
 	}
 	return
