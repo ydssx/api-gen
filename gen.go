@@ -117,27 +117,34 @@ func genHandlerFunc(filename string, def TypeInfo, logic FuncInfo, cfg Config) F
 func writeDecl(filename, decl string) (info FuncInfo) {
 	// 解析文件
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
+	file, err := decorator.ParseFile(fset, filename, nil, parser.ParseComments)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// 将新函数的源代码解析为语法树
-	funcAST, err := parser.ParseFile(fset, "", "package main\n\n"+decl, parser.ParseComments)
+	funcAST, err := decorator.ParseFile(fset, "", "package main\n"+decl, parser.ParseComments)
 	if err != nil {
 		log.Fatal(err)
 	}
-	newFunc := funcAST.Decls[0].(*ast.FuncDecl)
+
+	newFunc := funcAST.Decls[0].(*dst.FuncDecl)
 
 	info = parseFunc(file.Name.Name, newFunc)
 
-	if isFunctionExists(file, newFunc.Name.Name) {
+	index, _ := isFunctionExists(file, newFunc.Name.Name)
+	if index >= 0 {
 		// 如果函数名重复，可以选择跳过添加或者进行替换
-		log.Println("Function", newFunc.Name.Name, "already exists. Skipping...")
-		return
+		log.Println("Function", newFunc.Name.Name, "already exists. Updating comments...")
+		file.Decls[index].Decorations().Start = newFunc.Decs.Start
+	} else {
+		file.Decls = append(file.Decls, newFunc)
+		fmt.Printf("New function [%s] will add to %s", newFunc.Name.Name, filename)
 	}
-
-	fileAppend(filename, decl)
+	if err := reWrite(filename, file); err != nil {
+		log.Fatal(err)
+	}
+	// fileAppend(filename, decl)
 	return
 }
 
@@ -191,13 +198,13 @@ func fileAppend(filename, content string) error {
 }
 
 // 检查函数名是否存在
-func isFunctionExists(file *ast.File, functionName string) bool {
-	for _, decl := range file.Decls {
-		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == functionName {
-			return true
+func isFunctionExists(file *dst.File, functionName string) (index int, exist bool) {
+	for i, decl := range file.Decls {
+		if fn, ok := decl.(*dst.FuncDecl); ok && fn.Name.Name == functionName {
+			return i, true
 		}
 	}
-	return false
+	return -1, false
 }
 
 type RouterExprInfo struct {
@@ -437,21 +444,30 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 		}
 	}
 
-	outputFile, err := os.OpenFile(routerFile, os.O_WRONLY|os.O_CREATE, 0644)
-	if err != nil {
-		fmt.Println("Failed to create file:", err)
-		return
-	}
-	defer outputFile.Close()
-
 	// 重新写入文件，保留原始文件的格式和注释
-	err = decorator.Fprint(outputFile, file)
-	if err != nil {
-		fmt.Println("Failed to write file:", err)
-		return
+	if err := reWrite(routerFile, file); err != nil {
+		return err
 	}
 
 	fmt.Println("New statement added to", routerFile)
+	return nil
+}
+
+func reWrite(filename string, file *dst.File) error {
+	outputFile, err := os.OpenFile(filename, os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		fmt.Println("Failed to create file:", err)
+		return err
+	}
+	defer outputFile.Close()
+
+	err = decorator.Fprint(outputFile, file)
+	if err != nil {
+		fmt.Println("Failed to write file:", err)
+		return err
+	}
+
+	fmt.Printf("File %s updated", filename)
 	return nil
 }
 

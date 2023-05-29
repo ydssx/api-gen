@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"strings"
 
+	"github.com/dave/dst"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )
@@ -67,7 +68,7 @@ type FuncInfo struct {
 	Results  []string
 }
 
-func parseFunc(pkg string, dec *ast.FuncDecl) (l FuncInfo) {
+func parseFunc(pkg string, dec *dst.FuncDecl) (l FuncInfo) {
 	l.Pkg = pkg
 	l.FuncName = dec.Name.Name
 	results := dec.Type.Results
