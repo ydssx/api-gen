@@ -7,7 +7,7 @@ API-GEN is a tool that generates APIs and handlers based on a configuration file
 1. To install API-Gen, use the following command::
 
 ```
-go install github.com/ydssx/api-gen
+go install github.com/ydssx/api-gen@latest
 ```
 
 2. Define the type structures in the `typeFile`:
