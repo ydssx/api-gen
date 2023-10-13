@@ -122,28 +122,40 @@ func WriteDecl(filename, decl string) (info FuncInfo) {
 		log.Fatal(err)
 	}
 
+	if !strings.HasPrefix(decl, "package") {
+		decl = "package main\n" + decl
+	}
+
 	// 将新函数的源代码解析为语法树
-	funcAST, err := decorator.ParseFile(fset, "", "package main\n"+decl, parser.ParseComments)
+	funcAST, err := decorator.ParseFile(fset, "", decl, parser.ParseComments)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	newFunc := funcAST.Decls[0].(*dst.FuncDecl)
+	var funcs []*dst.FuncDecl
+	for _, v := range funcAST.Decls {
+		if f, ok := v.(*dst.FuncDecl); ok {
+			funcs = append(funcs, f)
+		}
+	}
 
-	info = parseFunc(file.Name.Name, newFunc)
+	for _, newFunc := range funcs {
+		info = parseFunc(file.Name.Name, newFunc)
 
-	index, _ := isFunctionExists(file, newFunc.Name.Name)
-	if index >= 0 {
-		// 如果函数名重复，可以选择跳过添加或者进行替换
-		log.Println("Function", newFunc.Name.Name, "already exists. Updating comments...")
-		file.Decls[index].Decorations().Start = newFunc.Decs.Start
-	} else {
-		file.Decls = append(file.Decls, newFunc)
-		fmt.Printf("New function [%s] will add to %s", newFunc.Name.Name, filename)
+		index, _ := isFunctionExists(file, newFunc.Name.Name)
+		if index >= 0 {
+			// 如果函数名重复，可以选择跳过添加或者进行替换
+			log.Println("Function", newFunc.Name.Name, "already exists. Updating comments...")
+			file.Decls[index].Decorations().Start = newFunc.Decs.Start
+		} else {
+			file.Decls = append(file.Decls, newFunc)
+			fmt.Printf("New function [%s] will add to %s", newFunc.Name.Name, filename)
+		}
 	}
 	if err := reWrite(filename, file); err != nil {
 		log.Fatal(err)
 	}
+
 	// fileAppend(filename, decl)
 	return
 }
