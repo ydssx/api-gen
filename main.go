@@ -2,6 +2,8 @@ package main
 
 import (
 	"flag"
+
+	"github.com/ydssx/api-gen/gen"
 )
 
 func main() {
@@ -9,5 +11,5 @@ func main() {
 	flag.StringVar(&configFile, "c", "config.yaml", "path to config file")
 	flag.Parse()
 
-	NewAPIGenBuilder().WithConfig(configFile).Build()
+	gen.NewAPIGenBuilder().WithConfig(configFile).Build()
 }
