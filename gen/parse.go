@@ -75,7 +75,9 @@ func parseFunc(pkg string, dec *dst.FuncDecl) (l FuncInfo) {
 	result := []string{}
 	if results != nil {
 		for _, v := range results.List {
-			result = append(result, v.Names[0].Name)
+			if len(v.Names) > 0 {
+				result = append(result, v.Names[0].Name)
+			}
 		}
 	}
 	l.Results = result
