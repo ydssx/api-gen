@@ -31,7 +31,7 @@ func %sLogic(req %s) (resp %s, err error) {
 
 func genLogicFunc(filename string, api TypeInfo) FuncInfo {
 	content := fmt.Sprintf(logicTmp, api.HandlerName, api.Req, api.Resp)
-	return writeDecl(filename, content)
+	return WriteDecl(filename, content)
 }
 
 var handlerTmp = `
@@ -111,10 +111,10 @@ func genHandlerFunc(filename string, def TypeInfo, logic FuncInfo, cfg Config) F
 	// 要追加的内容
 	content := fmt.Sprintf(handlerTmp, addSwagAnnotation(def, cfg), def.HandlerName, def.Req, strings.Join(logic.Results, ", "), logic.Pkg, logic.FuncName, logic.Results[0])
 
-	return writeDecl(filename, content)
+	return WriteDecl(filename, content)
 }
 
-func writeDecl(filename, decl string) (info FuncInfo) {
+func WriteDecl(filename, decl string) (info FuncInfo) {
 	// 解析文件
 	fset := token.NewFileSet()
 	file, err := decorator.ParseFile(fset, filename, nil, parser.ParseComments)
