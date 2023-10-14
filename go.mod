@@ -4,6 +4,7 @@ go 1.20
 
 require (
 	github.com/dave/dst v0.27.2
+	github.com/fatih/color v1.15.0
 	github.com/gin-gonic/gin v1.9.0
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/pkg/errors v0.9.1
@@ -13,6 +14,7 @@ require (
 
 require (
 	github.com/google/go-cmp v0.5.8 // indirect
+	github.com/mattn/go-colorable v0.1.13 // indirect
 	golang.org/x/mod v0.9.0 // indirect
 )
 

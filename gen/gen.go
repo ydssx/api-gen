@@ -16,6 +16,7 @@ import (
 
 	"github.com/dave/dst"
 	"github.com/dave/dst/decorator"
+	"github.com/fatih/color"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -122,7 +123,7 @@ func WriteDecl(filename, decl string) (info FuncInfo) {
 		log.Fatal(err)
 	}
 
-	if !strings.HasPrefix(decl, "package") {
+	if !strings.Contains(decl, "package ") {
 		decl = "package main\n" + decl
 	}
 
@@ -145,11 +146,13 @@ func WriteDecl(filename, decl string) (info FuncInfo) {
 		index, _ := isFunctionExists(file, newFunc.Name.Name)
 		if index >= 0 {
 			// 如果函数名重复，可以选择跳过添加或者进行替换
-			log.Println("Function", newFunc.Name.Name, "already exists. Updating comments...")
+			fmt.Println("Function", newFunc.Name.Name, "already exists. Updating comments...")
 			file.Decls[index].Decorations().Start = newFunc.Decs.Start
 		} else {
 			file.Decls = append(file.Decls, newFunc)
-			fmt.Printf("New function [%s] will add to %s", newFunc.Name.Name, filename)
+			fmt.Print(color.GreenString("New function ["))
+			color.New(color.FgGreen,color.Bold).Print(newFunc.Name.Name)
+			color.Green("] will be added to %s.\n", filename)
 		}
 	}
 	if err := reWrite(filename, file); err != nil {
@@ -479,7 +482,7 @@ func reWrite(filename string, file *dst.File) error {
 		return err
 	}
 
-	fmt.Printf("File %s updated", filename)
+	// fmt.Printf("File %s updated.\n", filename)
 	return nil
 }
 
