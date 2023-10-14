@@ -151,7 +151,7 @@ func WriteDecl(filename, decl string) (info FuncInfo) {
 		} else {
 			file.Decls = append(file.Decls, newFunc)
 			fmt.Print(color.GreenString("New function ["))
-			color.New(color.FgGreen,color.Bold).Print(newFunc.Name.Name)
+			color.New(color.FgHiGreen,color.Bold).Print(newFunc.Name.Name)
 			color.Green("] will be added to %s.\n", filename)
 		}
 	}
