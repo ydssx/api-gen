@@ -147,7 +147,7 @@ func WriteDecl(filename, decl string) (info FuncInfo) {
 		if index >= 0 {
 			// 如果函数名重复，可以选择跳过添加或者进行替换
 			fmt.Println("Function", newFunc.Name.Name, "already exists. Updating comments...")
-			file.Decls[index].Decorations().Start = newFunc.Decs.Start
+			// file.Decls[index].Decorations().Start = newFunc.Decs.Start
 		} else {
 			file.Decls = append(file.Decls, newFunc)
 			fmt.Print(color.GreenString("New function ["))
@@ -504,5 +504,6 @@ func searchFunc(routerFile string, routerFunc string) (*dst.File, *dst.FuncDecl,
 	if targetFunc == nil {
 		return nil, nil, fmt.Errorf("Failed to find target func :%s ,%v", routerFunc, err)
 	}
+	
 	return file, targetFunc, nil
 }
