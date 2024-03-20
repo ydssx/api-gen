@@ -94,3 +94,18 @@ Contributions are welcome! If you find any issues or have suggestions for improv
 ### License
 
 This project is licensed under the [MIT License](LICENSE).
+
+## Changelog
+
+### v0.1.0
+
+- Initial release.
+
+### v0.2.0
+
+- Add support for multiple API paths.
+- Add support for multiple type files.
+- Add support for multiple logic files.
+- Add support for multiple handler files.
+- Add support for multiple router files.
+- Add support for multiple group functions in the router file.

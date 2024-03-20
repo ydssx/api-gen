@@ -114,6 +114,9 @@ func DFSPath(root *RouteNode, target string) [][]string {
 	return paths
 }
 
+// findRootRG finds the root router group variable name declared in the given function.
+// It looks for common patterns of initializing a router group and assigning it to a variable.
+// Returns the variable name if found, empty string if not.
 func findRootRG(funcDecl *dst.FuncDecl) string {
 	paramList := funcDecl.Type.Params.List
 	if len(paramList) > 0 {

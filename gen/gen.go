@@ -73,6 +73,8 @@ type AnnotationData struct {
 	Summary     string
 }
 
+// addSwagAnnotation generates a Swagger annotation for the given API info and config.
+// It uses a template to generate the annotation with the provided info.
 func addSwagAnnotation(info TypeInfo, cfg Config) string {
 	tmpl, err := template.New("annotation").Funcs(template.FuncMap{
 		"ToLower": strings.ToLower,
@@ -108,13 +110,16 @@ func getParamType(method string) string {
 }
 
 func genHandlerFunc(filename string, def TypeInfo, logic FuncInfo, cfg Config) FuncInfo {
-
 	// 要追加的内容
 	content := fmt.Sprintf(handlerTmp, addSwagAnnotation(def, cfg), def.HandlerName, def.Req, strings.Join(logic.Results, ", "), logic.Pkg, logic.FuncName, logic.Results[0])
 
 	return WriteDecl(filename, content)
 }
 
+// WriteDecl writes a function declaration to the given Go source file.
+// It parses the existing file, appends the new function declaration,
+// and rewrites the file. It returns a FuncInfo struct containing
+// information about the new function.
 func WriteDecl(filename, decl string) (info FuncInfo) {
 	// 解析文件
 	fset := token.NewFileSet()
@@ -151,7 +156,7 @@ func WriteDecl(filename, decl string) (info FuncInfo) {
 		} else {
 			file.Decls = append(file.Decls, newFunc)
 			fmt.Print(color.GreenString("New function ["))
-			color.New(color.FgHiGreen,color.Bold).Print(newFunc.Name.Name)
+			color.New(color.FgHiGreen, color.Bold).Print(newFunc.Name.Name)
 			color.Green("] will be added to %s.\n", filename)
 		}
 	}
@@ -163,6 +168,9 @@ func WriteDecl(filename, decl string) (info FuncInfo) {
 	return
 }
 
+// formatAndWriteFile formats the given AST file using the given file set and
+// configuration, and writes the formatted source code to the given output file.
+// It returns any error encountered while formatting or writing.
 func formatAndWriteFile(outputFile *os.File, fset *token.FileSet, file *ast.File) error {
 	// 创建缓冲区来保存格式化后的代码
 	var buf strings.Builder
@@ -193,7 +201,7 @@ func findInsertIndex(stmts []ast.Stmt, startPos, endPos token.Pos) int {
 
 func fileAppend(filename, content string) error {
 	// 打开文件，如果文件不存在则创建，以追加模式打开
-	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
 		return errors.Wrap(err, "Failed to open file")
 	}
@@ -248,6 +256,9 @@ func hasEmptyLineAtEnd(filename string) (bool, error) {
 	return false, nil
 }
 
+// isRouterAdded checks if a router handler with the given RouterExprInfo is
+// added in the given list of statements. It recursively checks inside block
+// statements. Returns true if a matching router handler call expression is found.
 func isRouterAdded(stmts []dst.Stmt, info RouterExprInfo) bool {
 	for _, stmt := range stmts {
 		switch stmt := stmt.(type) {
@@ -287,6 +298,10 @@ func isRouterAdded(stmts []dst.Stmt, info RouterExprInfo) bool {
 	return false
 }
 
+// findRouterGroup searches the given statements recursively to find a router
+// group registration with the given group name. It returns the variable name
+// that the router group is assigned to, or an empty string if no matching
+// router group is found.
 func findRouterGroup(stmts []dst.Stmt, group string) string {
 	for _, stmt := range stmts {
 		switch stmt := stmt.(type) {
@@ -344,6 +359,9 @@ func getRouterGroupName(call *dst.CallExpr) string {
 	return ident.Name
 }
 
+// findAndInsert recursively searches through the statements to find the
+// router group matching the given group name. When found, it inserts the
+// new call expression into the block, handling proper indentation.
 func findAndInsert(stmts []dst.Stmt, newCallExpr dst.Stmt, group string) []dst.Stmt {
 	var found bool
 	for i, stmt := range stmts {
@@ -389,6 +407,10 @@ func insertBlock(stmts []dst.Stmt, newCallExpr dst.Stmt) []dst.Stmt {
 	return stmts
 }
 
+// addRouter adds a new route handler to the router setup function in the
+// provided Go file. It searches for the target router setup function, finds
+// the correct location to insert the new route based on provided group name,
+// and inserts the handler expression without modifying existing routes.
 func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc FuncInfo) (err error) {
 	// 查找目标函数
 	file, targetFunc, err := searchFunc(routerFile, routerFunc)
@@ -468,8 +490,10 @@ func addRouter(routerFile, routerFunc string, apiInfo TypeInfo, handlerFunc Func
 	return nil
 }
 
+// reWrite overwrites the given file with the provided AST, preserving
+// the original formatting and comments.
 func reWrite(filename string, file *dst.File) error {
-	outputFile, err := os.OpenFile(filename, os.O_WRONLY|os.O_TRUNC, 0644)
+	outputFile, err := os.OpenFile(filename, os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		fmt.Println("Failed to create file:", err)
 		return err
@@ -486,6 +510,9 @@ func reWrite(filename string, file *dst.File) error {
 	return nil
 }
 
+// searchFunc searches the given routerFile for a function declaration
+// with name routerFunc. It returns the parsed file, the found function
+// declaration, and any error.
 func searchFunc(routerFile string, routerFunc string) (*dst.File, *dst.FuncDecl, error) {
 	fset := token.NewFileSet()
 	file, err := decorator.ParseFile(fset, routerFile, nil, parser.ParseComments)
@@ -504,6 +531,6 @@ func searchFunc(routerFile string, routerFunc string) (*dst.File, *dst.FuncDecl,
 	if targetFunc == nil {
 		return nil, nil, fmt.Errorf("Failed to find target func :%s ,%v", routerFunc, err)
 	}
-	
+
 	return file, targetFunc, nil
 }
